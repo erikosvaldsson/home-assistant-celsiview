@@ -1,0 +1,13 @@
+{
+  "domain": "celsiview",
+  "name": "Celsiview",
+  "codeowners": ["@modvion"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/modvion/home-assistant-celsiview",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/modvion/home-assistant-celsiview/issues",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "0.1.0"
+}

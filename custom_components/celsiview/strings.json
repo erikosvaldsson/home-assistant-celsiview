@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Celsiview",
+        "description": "Enter your Celsiview API credentials. Keys are managed at https://app.celsiview.se/api/keys. If the key has client_secret_required enabled, also provide the client secret.",
+        "data": {
+          "base_url": "Base URL",
+          "application_key": "Application key",
+          "client_secret": "Client secret (optional)",
+          "scan_interval_minutes": "Poll interval (minutes)"
+        }
+      },
+      "select": {
+        "title": "Select sensors",
+        "description": "Found {count} locations on your account. Pick the ones you want to import as Home Assistant sensors. You can change this later from the integration options.",
+        "data": {
+          "selected_locations": "Locations to import"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The application key (or client secret) was rejected by Celsiview.",
+      "cannot_connect": "Could not reach Celsiview. Check the base URL and your network.",
+      "unknown": "Unexpected error; see Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This Celsiview account is already configured.",
+      "no_locations": "No locations were returned by the API. Grant the API user access to at least one location and try again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Celsiview options",
+        "description": "Select which locations to keep imported and how often to poll the Celsiview API. {count} locations are available.",
+        "data": {
+          "selected_locations": "Locations to import",
+          "scan_interval_minutes": "Poll interval (minutes)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The stored credentials are no longer accepted by Celsiview. Remove and re-add the integration.",
+      "cannot_connect": "Could not reach Celsiview. Check the base URL and your network."
+    }
+  }
+}

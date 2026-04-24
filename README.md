@@ -1,93 +1,165 @@
-# Home-Assistant CelsiView
+# Home Assistant – Celsiview
 
+A [Home Assistant](https://www.home-assistant.io/) custom integration that
+imports sensor readings from [Celsiview](https://app.celsiview.se/) (Celsicom)
+over its public HTTP API.
 
+Celsiview devices upload their samples to the cloud in bulk a few times per
+day rather than streaming live, so this integration is a polling integration:
+Home Assistant reads the most recently reported value for each location you
+select and exposes it as a sensor entity.
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Features
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- Config flow – set up entirely from the Home Assistant UI, no YAML.
+- Sensor picker – you choose which Celsiview locations become HA sensors.
+  Importing every location in a large account would be wasteful, so nothing
+  is imported until you tick it.
+- Configurable poll interval – defaults to **15 minutes**, changeable from
+  1 minute up to 24 hours from the integration options.
+- Automatic units – the unit reported by Celsiview (e.g. `°C`, `%RH`, `MPa`)
+  is forwarded to Home Assistant and common sensor types (temperature,
+  humidity, pressure, CO₂, illuminance, voltage, current, power, energy,
+  sound pressure) are mapped to the matching `device_class` so they appear
+  correctly in the Energy/History dashboards and in voice assistants.
+- Sample age attribute – each entity exposes the Celsiview sample timestamp
+  as `last_value_time` / `last_value_time_iso` so you can see exactly how
+  fresh a reading is, which matters when the hardware only phones home a
+  few times per day.
+- Options flow – change the poll interval and the selected sensors at any
+  time without removing the integration.
 
-## Add your files
+## Requirements
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/erik.osvaldsson/home-assistant-celsiview.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-* [Set up project integrations](https://gitlab.com/erik.osvaldsson/home-assistant-celsiview/-/settings/integrations)
-
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+- Home Assistant 2024.4 or later.
+- A Celsiview account with at least one location.
+- A Celsiview **API key** – create one at
+  [`app.celsiview.se/api/keys`](https://app.celsiview.se/api/keys). You will
+  need the **application key** and, if the key has
+  *client_secret_required* enabled, also the **client secret**.
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### HACS (recommended)
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+1. In Home Assistant, open **HACS → Integrations**.
+2. Click the three-dot menu → **Custom repositories**.
+3. Add this repository's URL and select category **Integration**.
+4. Install **Celsiview** and restart Home Assistant.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Once this repository is accepted into the default HACS index the custom
+repository step will no longer be needed.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+### GPM (Generic Package Manager)
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+If you use [GPM](https://github.com/home-assistant-community-integrations/gpm)
+to manage custom integrations, install this one with:
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```bash
+gpm install https://github.com/modvion/home-assistant-celsiview
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Then restart Home Assistant.
+
+### Manual
+
+1. Copy `custom_components/celsiview` into your Home Assistant
+   `config/custom_components/` directory so you end up with
+   `config/custom_components/celsiview/manifest.json`.
+2. Restart Home Assistant.
+
+## Configuration
+
+1. Go to **Settings → Devices & services → Add integration** and search for
+   **Celsiview**.
+2. Enter:
+   - **Base URL** – usually `https://app.celsiview.se`.
+   - **Application key** – from your Celsiview API key.
+   - **Client secret** – only required if your API key has
+     *client_secret_required* enabled; leave blank otherwise.
+   - **Poll interval (minutes)** – how often Home Assistant should ask
+     Celsiview for fresh data. Defaults to 15.
+3. On the next screen, tick the locations you want to import. Only ticked
+   locations are polled – nothing else from the account is loaded.
+
+To change the selection or the poll interval later, open the integration's
+**Configure** screen.
+
+## Entities
+
+Each selected Celsiview **Location** becomes one sensor entity with:
+
+| Field | Source |
+| --- | --- |
+| State | `last_value` |
+| Unit | `last_unit` |
+| Device class | `last_stype` → HA mapping (e.g. `T` → `temperature`) |
+| State class | `measurement` |
+| `zid` attribute | Celsiview location ID |
+| `sensor_type` attribute | `last_stype` (raw Celsiview code) |
+| `last_value_time` attribute | Unix timestamp of the sample |
+| `last_value_time_iso` attribute | Same timestamp, ISO 8601 UTC |
+
+All selected locations are grouped under a single "hub" device named after
+the Celsiview host.
+
+## Polling behaviour and bulk uploads
+
+Celsiview sensors upload their data in bulk a few times per day. Polling
+the API every minute would not produce fresher data – it would just add
+load on the Celsiview servers. The default 15-minute interval is a sensible
+compromise; if the hardware you use uploads less often than that you can
+safely move the interval up to one hour or more.
+
+The integration performs a **single** `GET /api/v2/locations` request per
+poll regardless of how many sensors you have selected, so selecting more
+sensors does not increase API load.
+
+## Troubleshooting
+
+- **"The application key was rejected"** – double-check that you copied the
+  `application_key` (not the `zid`) from
+  [`app.celsiview.se/api/keys`](https://app.celsiview.se/api/keys), and that
+  the IP of your Home Assistant host is allowed on the key
+  (`allowed_ips` empty means "any").
+- **"No locations were returned"** – the API user connected to the key
+  must have access to the locations. Check the `service_user_zid` on the
+  API key and make sure that user is authorized on the account where your
+  sensors live.
+- **Values not updating** – remember Celsiview hardware uploads in bulk a
+  few times per day. `last_value_time_iso` will tell you how old the latest
+  reading actually is.
+
+## Development
+
+The integration is intentionally small and split by concern:
+
+```
+custom_components/celsiview/
+├── __init__.py        # config-entry setup & unload
+├── api.py             # aiohttp client + Location dataclass
+├── config_flow.py     # config + options flow (credentials, selection)
+├── const.py           # constants and sensor-type → device_class map
+├── coordinator.py     # DataUpdateCoordinator
+├── manifest.json
+├── sensor.py          # sensor platform
+├── strings.json
+└── translations/
+    └── en.json
+```
+
+The HTTP layer lives entirely in [`api.py`](custom_components/celsiview/api.py).
+If you need to adjust the authentication header names, the request-key
+signature scheme or the endpoint paths, that's the one file to touch.
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+See [LICENSE](LICENSE) for details.
+
+## Disclaimer
+
+This is an unofficial integration and is not affiliated with or endorsed
+by Celsicom AB. "Celsiview" and "Celsicom" are trademarks of their
+respective owners.
