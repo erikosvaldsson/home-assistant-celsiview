@@ -5,15 +5,57 @@
 # Container Scanning customization: https://docs.gitlab.com/user/application_security/container_scanning/#customizing-analyzer-behavior
 # Note that environment variables can be set in several places
 # See https://docs.gitlab.com/ci/variables/#cicd-variable-precedence
+
 stages:
-- test
-- secret-detection
-sast:
-  stage: test
+  - lint
+  - test
+  - secret-detection
+
 include:
-- template: Security/SAST.gitlab-ci.yml
-- template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
 variables:
   SECRET_DETECTION_ENABLED: 'true'
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIPENV_VENV_IN_PROJECT: "1"
+
+# --- reusable setup for Python jobs ---------------------------------------
+.python:
+  image: python:3.13-slim
+  cache:
+    key:
+      files:
+        - Pipfile.lock
+    paths:
+      - .venv/
+      - .cache/pip/
+  before_script:
+    - pip install --quiet pipenv
+    - pipenv sync --dev
+
+# --- lint -----------------------------------------------------------------
+lint:ruff:
+  extends: .python
+  stage: lint
+  script:
+    - pipenv run ruff check custom_components tests
+    - pipenv run ruff format --check custom_components tests
+
+# --- test -----------------------------------------------------------------
+test:pytest:
+  extends: .python
+  stage: test
+  script:
+    - pipenv run pytest tests/ --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+
+# GitLab-provided SAST template places jobs in the `test` stage by default.
+sast:
+  stage: test
+
 secret_detection:
   stage: secret-detection

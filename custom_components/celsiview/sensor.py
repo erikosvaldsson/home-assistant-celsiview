@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -96,11 +96,7 @@ class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEnt
         if not loc:
             return {}
         last_ts = loc.last_value_time
-        last_iso = (
-            datetime.fromtimestamp(last_ts, tz=timezone.utc).isoformat()
-            if last_ts
-            else None
-        )
+        last_iso = datetime.fromtimestamp(last_ts, tz=UTC).isoformat() if last_ts else None
         return {
             "zid": loc.zid,
             "sensor_type": loc.last_stype,

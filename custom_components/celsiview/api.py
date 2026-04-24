@@ -24,7 +24,6 @@ the integration treats the client as an opaque service.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import logging
@@ -77,7 +76,7 @@ class Location:
     group_zid: str | None = None
 
     @classmethod
-    def from_api(cls, data: dict[str, Any]) -> "Location":
+    def from_api(cls, data: dict[str, Any]) -> Location:
         """Build a Location from the raw API payload."""
         return cls(
             zid=data["zid"],
@@ -192,23 +191,18 @@ class CelsiviewClient:
                         f"Check application key."
                     )
                 if resp.status in (401, 403):
-                    raise CelsiviewAuthError(
-                        f"Authentication failed ({resp.status}): {text[:200]}"
-                    )
+                    raise CelsiviewAuthError(f"Authentication failed ({resp.status}): {text[:200]}")
                 if resp.status >= 400:
-                    raise CelsiviewApiError(
-                        f"{method} {path} failed ({resp.status}): {text[:200]}"
-                    )
+                    raise CelsiviewApiError(f"{method} {path} failed ({resp.status}): {text[:200]}")
                 if not text:
                     return None
                 try:
                     return _json_loads(text)
                 except ValueError as err:
                     raise CelsiviewApiError(
-                        f"Invalid JSON from {path}: {err}. "
-                        f"First 200 chars: {text[:200]!r}"
+                        f"Invalid JSON from {path}: {err}. First 200 chars: {text[:200]!r}"
                     ) from err
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise CelsiviewApiError(f"Timeout on {method} {path}") from err
         except aiohttp.ClientError as err:
             raise CelsiviewApiError(f"HTTP error on {method} {path}: {err}") from err

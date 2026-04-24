@@ -52,9 +52,7 @@ def _credentials_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): str,
             vol.Required(
                 CONF_SCAN_INTERVAL_MINUTES,
-                default=defaults.get(
-                    CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES
-                ),
+                default=defaults.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES),
             ): vol.All(
                 vol.Coerce(int),
                 vol.Range(min=MIN_SCAN_INTERVAL_MINUTES, max=MAX_SCAN_INTERVAL_MINUTES),
@@ -120,9 +118,7 @@ class CelsiviewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._credentials: dict[str, Any] = {}
         self._locations: list[Location] = []
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """First step: collect credentials and poll interval."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -139,7 +135,7 @@ class CelsiviewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except CelsiviewApiError as err:
                 _LOGGER.warning("Celsiview connection error: %s", err)
                 errors["base"] = "cannot_connect"
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception("Unexpected error during Celsiview setup")
                 errors["base"] = "unknown"
 
@@ -153,9 +149,7 @@ class CelsiviewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_select(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_select(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Second step: pick which locations to import as sensors."""
         if not self._locations:
             return self.async_abort(reason="no_locations")
@@ -164,9 +158,7 @@ class CelsiviewConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data = dict(self._credentials)
             options = {
                 CONF_SELECTED_LOCATIONS: user_input[CONF_SELECTED_LOCATIONS],
-                CONF_SCAN_INTERVAL_MINUTES: self._credentials[
-                    CONF_SCAN_INTERVAL_MINUTES
-                ],
+                CONF_SCAN_INTERVAL_MINUTES: self._credentials[CONF_SCAN_INTERVAL_MINUTES],
             }
             return self.async_create_entry(
                 title=_title_for(self._credentials),
@@ -195,9 +187,7 @@ class CelsiviewOptionsFlow(config_entries.OptionsFlow):
         self._entry = entry
         self._locations: list[Location] = []
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
         try:
             self._locations = await _verify_and_list(self.hass, dict(self._entry.data))
@@ -223,9 +213,7 @@ class CelsiviewOptionsFlow(config_entries.OptionsFlow):
         current_interval = int(
             self._entry.options.get(
                 CONF_SCAN_INTERVAL_MINUTES,
-                self._entry.data.get(
-                    CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES
-                ),
+                self._entry.data.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES),
             )
         )
 
@@ -240,13 +228,9 @@ class CelsiviewOptionsFlow(config_entries.OptionsFlow):
 
         schema = _selection_schema(self._locations, current_selected).extend(
             {
-                vol.Required(
-                    CONF_SCAN_INTERVAL_MINUTES, default=current_interval
-                ): vol.All(
+                vol.Required(CONF_SCAN_INTERVAL_MINUTES, default=current_interval): vol.All(
                     vol.Coerce(int),
-                    vol.Range(
-                        min=MIN_SCAN_INTERVAL_MINUTES, max=MAX_SCAN_INTERVAL_MINUTES
-                    ),
+                    vol.Range(min=MIN_SCAN_INTERVAL_MINUTES, max=MAX_SCAN_INTERVAL_MINUTES),
                 ),
             }
         )
