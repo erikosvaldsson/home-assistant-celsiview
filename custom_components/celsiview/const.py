@@ -28,6 +28,8 @@ STYPE_DEVICE_CLASS: dict[str, str] = {
     "TLP": "temperature",
     "H": "humidity",
     "RH": "humidity",
+    "HHP": "humidity",
+    "HLP": "humidity",
     "P": "pressure",
     "HP": "pressure",
     "CO2": "carbon_dioxide",

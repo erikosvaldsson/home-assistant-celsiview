@@ -38,10 +38,17 @@ import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
-HEADER_APPLICATION_KEY = "X-Celsiview-Application-Key"
-HEADER_REQUEST_KEY = "X-Celsiview-Request-Key"
-HEADER_TIMESTAMP = "X-Celsiview-Timestamp"
-HEADER_NONCE = "X-Celsiview-Nonce"
+HEADER_APPLICATION_KEY = "X-Application-Key"
+# The following headers are used when the API key has
+# `client_secret_required` enabled. The exact names and signing payload
+# format used by Celsiview for the request-key HMAC are not documented in
+# the public API reference; the values below are best-effort placeholders.
+# If your API key requires a client secret and authentication fails,
+# adjust these constants and/or `_sign` below to match the Celsiview
+# implementation.
+HEADER_REQUEST_KEY = "X-Request-Key"
+HEADER_TIMESTAMP = "X-Request-Timestamp"
+HEADER_NONCE = "X-Request-Nonce"
 
 
 class CelsiviewError(Exception):
@@ -161,6 +168,7 @@ class CelsiviewClient:
         url = urljoin(self._base_url + "/", path.lstrip("/"))
         body = b"" if json_body is None else _json_dumps(json_body)
         headers = self._sign(method, path, body)
+        headers["Accept"] = "application/json"
         if json_body is not None:
             headers["Content-Type"] = "application/json"
 
@@ -172,8 +180,17 @@ class CelsiviewClient:
                 data=body if json_body is not None else None,
                 headers=headers,
                 timeout=self._timeout,
+                allow_redirects=False,
             ) as resp:
                 text = await resp.text()
+                # Unauthenticated requests redirect to /login; treat that
+                # as an auth error rather than chasing the redirect.
+                if 300 <= resp.status < 400:
+                    raise CelsiviewAuthError(
+                        f"Unauthenticated ({resp.status} redirect to "
+                        f"{resp.headers.get('Location', '?')}). "
+                        f"Check application key."
+                    )
                 if resp.status in (401, 403):
                     raise CelsiviewAuthError(
                         f"Authentication failed ({resp.status}): {text[:200]}"
@@ -187,7 +204,10 @@ class CelsiviewClient:
                 try:
                     return _json_loads(text)
                 except ValueError as err:
-                    raise CelsiviewApiError(f"Invalid JSON from {path}: {err}") from err
+                    raise CelsiviewApiError(
+                        f"Invalid JSON from {path}: {err}. "
+                        f"First 200 chars: {text[:200]!r}"
+                    ) from err
         except asyncio.TimeoutError as err:
             raise CelsiviewApiError(f"Timeout on {method} {path}") from err
         except aiohttp.ClientError as err:
@@ -208,12 +228,18 @@ class CelsiviewClient:
         return [Location.from_api(item) for item in raw_locations]
 
     async def get_location(self, zid: str) -> Location:
-        """Return a single location by zid."""
+        """Return a single location by zid.
+
+        The single-location endpoint returns the same envelope shape as
+        the list endpoint, just filtered to one location, so we reuse
+        the list extractor.
+        """
         data = await self._request("GET", f"/api/v2/location/{zid}")
-        raw = data.get("location", data) if isinstance(data, dict) else data
-        if not isinstance(raw, dict):
+        raw_list = _extract_locations(data)
+        match = next((item for item in raw_list if item.get("zid") == zid), None)
+        if match is None:
             raise CelsiviewApiError(f"Unexpected payload for location {zid}: {data!r}")
-        return Location.from_api(raw)
+        return Location.from_api(match)
 
     async def get_locations(self, zids: list[str]) -> dict[str, Location]:
         """Return the selected locations keyed by zid.
