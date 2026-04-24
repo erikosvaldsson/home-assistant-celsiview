@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to Celsiview",
-        "description": "Enter your Celsiview API credentials. Keys are managed at https://app.celsiview.se/api/keys. If the key has client_secret_required enabled, also provide the client secret.",
+        "description": "The Celsiview API lives at https://api.celsiview.se (this is the pre-filled default and you almost never need to change it). API keys are managed from the web app at https://app.celsiview.se/api/keys. If your key has client_secret_required enabled, also provide the client secret.",
         "data": {
           "base_url": "Base URL",
           "application_key": "Application key",
