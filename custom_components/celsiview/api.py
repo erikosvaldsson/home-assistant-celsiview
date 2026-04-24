@@ -1,21 +1,25 @@
 """Client for the Celsiview HTTP API.
 
-The Celsiview API (v2) is a REST-ish service hosted at `app.celsiview.se`.
-Authentication is performed with an application key obtained from
+The Celsiview API (v2) is a REST-ish service hosted at `api.celsiview.se`
+(note: the web app at `app.celsiview.se` exposes /api/v2/... routes too,
+but they behave differently - most notably `/locations` is filtered for
+the UI and history reads return empty lists). API keys are managed at
 `https://app.celsiview.se/api/keys`. If the API key has
 `client_secret_required` set, a client-secret-derived request key must
 also be included on every call.
 
-Only the small subset of endpoints needed by the Home Assistant
-integration is implemented here:
+Only the subset of endpoints needed by the Home Assistant integration is
+implemented here:
 
-* ``GET /api/v2/locations``       - list locations (with last value)
-* ``GET /api/v2/location/{zid}``  - fetch a single location
+* ``GET /api/v2/locations``                          - list all locations
+* ``GET /api/v2/location/{zid}``                     - single location
+* ``GET /api/v2/location/{zid}/history?startTime=... - raw samples in a
+  time window (times+values arrays)
 
-`Location` is the primary entity exposed to Home Assistant: each location
-holds a time series of samples and carries ``last_value``,
-``last_value_time``, ``last_unit`` and ``last_stype`` fields. A location
-is what becomes a Home Assistant sensor entity.
+`Location` carries ``last_value``, ``last_value_time``, ``last_unit`` and
+``last_stype`` and backs the entity state. `fetch_history` provides the
+raw time series used to backfill long-term statistics so HA graphs show
+every sample at its on-device timestamp rather than the poll time.
 
 If the exact header names or signature scheme used by Celsiview differ
 from the assumptions here, only this file needs to change - the rest of
@@ -62,6 +66,18 @@ class CelsiviewApiError(CelsiviewError):
     """Raised when the server returns a non-auth error."""
 
 
+CELSIVIEW_EPOCH = 1262304000  # 2010-01-01T00:00:00Z
+HISTORY_CHUNK_SECONDS = 180 * 24 * 3600
+
+
+@dataclass(frozen=True)
+class Sample:
+    """One sample in a Celsiview time series."""
+
+    ts: int  # seconds since Unix epoch
+    value: float
+
+
 @dataclass(frozen=True)
 class Location:
     """Subset of a Celsiview Location relevant to Home Assistant."""
@@ -74,6 +90,8 @@ class Location:
     last_value_time: int | None
     account_zid: str | None = None
     group_zid: str | None = None
+    valid_start: int | None = None
+    valid_end: int | None = None
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> Location:
@@ -87,6 +105,8 @@ class Location:
             last_value_time=_as_int(data.get("last_value_time")),
             account_zid=data.get("account_zid"),
             group_zid=data.get("group_zid"),
+            valid_start=_as_int(data.get("valid_start")),
+            valid_end=_as_int(data.get("valid_end")),
         )
 
 
@@ -212,12 +232,15 @@ class CelsiviewClient:
         await self.list_locations()
 
     async def list_locations(self) -> list[Location]:
-        """Return every location visible to the API key."""
-        data = await self._request(
-            "GET",
-            "/api/v2/locations",
-            params={"include": "locations"},
-        )
+        """Return every location visible to the API key.
+
+        No ``include`` filter is sent: the reference importer uses a bare
+        ``GET /api/v2/locations`` and that returns every visible
+        location. An ``include=locations`` filter is accepted by the
+        server but silently omits some locations, which was previously
+        hiding active sensors.
+        """
+        data = await self._request("GET", "/api/v2/locations")
         raw_locations = _extract_locations(data)
         return [Location.from_api(item) for item in raw_locations]
 
@@ -247,6 +270,86 @@ class CelsiviewClient:
         wanted = set(zids)
         all_locations = await self.list_locations()
         return {loc.zid: loc for loc in all_locations if loc.zid in wanted}
+
+    async def fetch_history(
+        self,
+        zid: str,
+        start_ts: int,
+        end_ts: int,
+    ) -> list[Sample]:
+        """Return all samples between ``start_ts`` and ``end_ts`` (seconds).
+
+        The window is split into <= 180-day chunks to match the reference
+        importer, and ``start_ts`` is clamped forward to 2010-01-01 to
+        dodge a known API bug where earlier timestamps produce errors.
+
+        Notes on server behaviour (from the reference importer and live
+        probing):
+          * the server occasionally returns samples slightly outside the
+            requested range; those are trimmed here
+          * sample ``values`` may contain ``None`` to indicate gaps;
+            those samples are dropped
+          * ``times`` and ``values`` are aligned positionally
+        """
+        if end_ts <= start_ts:
+            return []
+        start_ts = max(start_ts, CELSIVIEW_EPOCH)
+        if end_ts <= start_ts:
+            return []
+
+        samples: list[Sample] = []
+        cursor = start_ts
+        while cursor < end_ts:
+            chunk_end = min(cursor + HISTORY_CHUNK_SECONDS, end_ts)
+            samples.extend(await self._fetch_history_chunk(zid, cursor, chunk_end))
+            cursor = chunk_end
+        return samples
+
+    async def _fetch_history_chunk(
+        self,
+        zid: str,
+        start_ts: int,
+        end_ts: int,
+    ) -> list[Sample]:
+        data = await self._request(
+            "GET",
+            f"/api/v2/location/{zid}/history",
+            params={"startTime": str(start_ts), "endTime": str(end_ts)},
+        )
+        return _parse_history_response(data, zid, start_ts, end_ts)
+
+
+def _parse_history_response(
+    data: Any,
+    zid: str,
+    start_ts: int,
+    end_ts: int,
+) -> list[Sample]:
+    """Turn a `/location/{zid}/history` payload into ``Sample`` objects.
+
+    Raises ``CelsiviewApiError`` if the shape is unrecognised. Out-of-range
+    and null-valued points are dropped (the Celsiview server sometimes
+    returns extras outside the requested window and ``None`` values
+    representing missing samples).
+    """
+    if not isinstance(data, dict):
+        raise CelsiviewApiError(f"Unexpected history payload for {zid}: {data!r}")
+    inner = data.get(zid) if zid in data else next(iter(data.values()), None)
+    if not isinstance(inner, dict):
+        raise CelsiviewApiError(f"Missing history block for {zid} in {data!r}")
+    times = inner.get("times") or []
+    values = inner.get("values") or []
+    samples: list[Sample] = []
+    for ts, raw in zip(times, values, strict=False):
+        ts_int = _as_int(ts)
+        val = _as_float(raw)
+        if ts_int is None or val is None:
+            continue
+        if ts_int < start_ts or ts_int > end_ts:
+            continue
+        samples.append(Sample(ts=ts_int, value=val))
+    samples.sort(key=lambda s: s.ts)
+    return samples
 
 
 def _extract_locations(data: Any) -> list[dict[str, Any]]:

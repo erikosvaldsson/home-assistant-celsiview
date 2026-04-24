@@ -1,8 +1,10 @@
-"""Make the integration importable as `celsiview_api` in tests.
+"""Make the integration importable at module level in tests.
 
-The custom component lives under `custom_components/celsiview/` which is
-not on ``sys.path`` by default. Tests exercise the API client in
-isolation (no Home Assistant runtime), so we load `api.py` directly.
+Tests exercise the API client and bucketing helper in isolation (no
+Home Assistant runtime), so we add `custom_components/celsiview/` to
+``sys.path`` and import modules directly. We deliberately avoid loading
+the package as ``celsiview`` because ``celsiview/__init__.py`` imports
+Home Assistant modules which are not installed in this test environment.
 """
 
 from __future__ import annotations

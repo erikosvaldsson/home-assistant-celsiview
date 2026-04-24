@@ -6,7 +6,13 @@ from datetime import timedelta
 
 DOMAIN = "celsiview"
 
-DEFAULT_BASE_URL = "https://app.celsiview.se"
+DEFAULT_BASE_URL = "https://api.celsiview.se"
+# The Celsiview web app lives at app.celsiview.se and has its own
+# /api/v2/... endpoints that behave differently (e.g. location lists are
+# filtered for UI rendering). Existing config entries pointing at the
+# app host are migrated to the API host on setup.
+LEGACY_APP_HOSTS = ("https://app.celsiview.se", "http://app.celsiview.se")
+
 DEFAULT_SCAN_INTERVAL_MINUTES = 15
 MIN_SCAN_INTERVAL_MINUTES = 1
 MAX_SCAN_INTERVAL_MINUTES = 24 * 60

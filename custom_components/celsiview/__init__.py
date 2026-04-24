@@ -20,6 +20,7 @@ from .const import (
     DEFAULT_BASE_URL,
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
+    LEGACY_APP_HOSTS,
 )
 from .coordinator import CelsiviewCoordinator
 
@@ -30,6 +31,8 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Celsiview from a config entry."""
+    _migrate_legacy_base_url(hass, entry)
+
     session = async_get_clientsession(hass)
     client = CelsiviewClient(
         session=session,
@@ -74,3 +77,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the entry when options change (selection or poll interval)."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _migrate_legacy_base_url(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Rewrite the web-app host to the API host on existing entries.
+
+    Early versions of this integration defaulted to
+    ``app.celsiview.se`` (the web app), which silently filters
+    `/api/v2/locations` and returns empty histories. The real API lives
+    at ``api.celsiview.se``. Existing entries are migrated in place so
+    users don't have to remove and re-add the integration.
+    """
+    current = (entry.data.get(CONF_BASE_URL) or "").rstrip("/")
+    if current in LEGACY_APP_HOSTS:
+        _LOGGER.info("Migrating Celsiview base URL %s -> %s", current, DEFAULT_BASE_URL)
+        new_data = {**entry.data, CONF_BASE_URL: DEFAULT_BASE_URL}
+        hass.config_entries.async_update_entry(entry, data=new_data)

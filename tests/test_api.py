@@ -8,13 +8,17 @@ import aiohttp
 import pytest
 from aiohttp import web
 from api import (
+    CELSIVIEW_EPOCH,
+    HISTORY_CHUNK_SECONDS,
     CelsiviewApiError,
     CelsiviewAuthError,
     CelsiviewClient,
     Location,
+    Sample,
     _as_float,
     _as_int,
     _extract_locations,
+    _parse_history_response,
     _refstr,
 )
 
@@ -273,6 +277,133 @@ async def test_get_locations_empty_returns_empty(celsiview_server) -> None:  # t
         assert await client.get_locations([]) == {}
     finally:
         await _aclose(client)
+
+
+# --- history parsing ------------------------------------------------------
+
+
+ZID = "a44b1ca98845324c77356912e6779631"
+
+
+def test_parse_history_basic() -> None:
+    data = {ZID: {"status": "ok", "times": [100, 200, 300], "values": [1.0, 2.0, 3.0]}}
+    samples = _parse_history_response(data, ZID, 0, 1000)
+    assert samples == [Sample(100, 1.0), Sample(200, 2.0), Sample(300, 3.0)]
+
+
+def test_parse_history_trims_out_of_range() -> None:
+    # The Celsiview server sometimes returns samples outside the requested
+    # window; those must be discarded so we don't pollute statistics.
+    data = {ZID: {"times": [50, 150, 250, 2000], "values": [0.5, 1.5, 2.5, 20.0]}}
+    samples = _parse_history_response(data, ZID, 100, 300)
+    assert [s.ts for s in samples] == [150, 250]
+
+
+def test_parse_history_drops_none_values() -> None:
+    data = {ZID: {"times": [100, 200, 300], "values": [1.0, None, 3.0]}}
+    samples = _parse_history_response(data, ZID, 0, 1000)
+    assert [s.ts for s in samples] == [100, 300]
+
+
+def test_parse_history_sorts_by_ts() -> None:
+    data = {ZID: {"times": [300, 100, 200], "values": [3.0, 1.0, 2.0]}}
+    samples = _parse_history_response(data, ZID, 0, 1000)
+    assert [s.ts for s in samples] == [100, 200, 300]
+
+
+def test_parse_history_empty() -> None:
+    data = {ZID: {"status": "ok", "times": [], "values": []}}
+    assert _parse_history_response(data, ZID, 0, 1000) == []
+
+
+def test_parse_history_missing_zid_raises() -> None:
+    with pytest.raises(CelsiviewApiError):
+        _parse_history_response("not a dict", ZID, 0, 1000)
+
+
+# --- fetch_history via test server ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fetch_history_passes_startTime_endTime(celsiview_server) -> None:  # type: ignore[no-untyped-def]
+    received: dict[str, str] = {}
+    start = CELSIVIEW_EPOCH + 1_000_000
+    end = start + 100
+    mid = start + 50
+
+    async def handler(request: web.Request) -> web.Response:
+        received.update(request.rel_url.query)
+        return web.json_response({ZID: {"times": [mid], "values": [1.5]}})
+
+    celsiview_server.handlers[f"/api/v2/location/{ZID}/history"] = handler
+
+    client = _client_for(celsiview_server)
+    try:
+        samples = await client.fetch_history(ZID, start, end)
+        assert received["startTime"] == str(start)
+        assert received["endTime"] == str(end)
+        assert samples == [Sample(mid, 1.5)]
+    finally:
+        await _aclose(client)
+
+
+@pytest.mark.asyncio
+async def test_fetch_history_clamps_to_epoch(celsiview_server) -> None:  # type: ignore[no-untyped-def]
+    received: list[dict[str, str]] = []
+
+    async def handler(request: web.Request) -> web.Response:
+        received.append(dict(request.rel_url.query))
+        return web.json_response({ZID: {"times": [], "values": []}})
+
+    celsiview_server.handlers[f"/api/v2/location/{ZID}/history"] = handler
+
+    client = _client_for(celsiview_server)
+    try:
+        # start=0 should be clamped forward to 2010-01-01
+        await client.fetch_history(ZID, 0, CELSIVIEW_EPOCH + 100)
+        assert received, "expected at least one request"
+        assert int(received[0]["startTime"]) == CELSIVIEW_EPOCH
+    finally:
+        await _aclose(client)
+
+
+@pytest.mark.asyncio
+async def test_fetch_history_chunks_large_windows(celsiview_server) -> None:  # type: ignore[no-untyped-def]
+    received: list[tuple[int, int]] = []
+
+    async def handler(request: web.Request) -> web.Response:
+        q = request.rel_url.query
+        received.append((int(q["startTime"]), int(q["endTime"])))
+        return web.json_response({ZID: {"times": [], "values": []}})
+
+    celsiview_server.handlers[f"/api/v2/location/{ZID}/history"] = handler
+
+    # Ask for 2 * chunk + 100 seconds of history: expect 3 chunks.
+    start = CELSIVIEW_EPOCH + 1
+    end = start + 2 * HISTORY_CHUNK_SECONDS + 100
+    client = _client_for(celsiview_server)
+    try:
+        await client.fetch_history(ZID, start, end)
+        assert len(received) == 3
+        # chunks must be contiguous, cover the whole window, and none can
+        # exceed the configured chunk size
+        assert received[0][0] == start
+        assert received[-1][1] == end
+        for s, e in received:
+            assert 0 < e - s <= HISTORY_CHUNK_SECONDS
+        for i in range(len(received) - 1):
+            assert received[i][1] == received[i + 1][0]
+    finally:
+        await _aclose(client)
+
+
+@pytest.mark.asyncio
+async def test_fetch_history_empty_window() -> None:
+    async with aiohttp.ClientSession() as session:
+        client = CelsiviewClient(session, "https://example.invalid", "APPKEY")
+        # end <= start should short-circuit without any HTTP call
+        assert await client.fetch_history(ZID, 200, 100) == []
+        assert await client.fetch_history(ZID, 200, 200) == []
 
 
 # --- JSON file validation -------------------------------------------------
