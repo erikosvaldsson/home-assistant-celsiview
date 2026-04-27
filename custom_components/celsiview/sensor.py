@@ -22,10 +22,18 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import CELSIVIEW_EPOCH, CelsiviewApiError, Location
+from .api import CELSIVIEW_EPOCH, CelsiviewApiError, Location, Sample
 from .bucketing import bucket_hourly
-from .const import CONF_BASE_URL, DEFAULT_BASE_URL, DOMAIN, STYPE_DEVICE_CLASS
+from .const import (
+    CONF_BACKFILL_STATES,
+    CONF_BASE_URL,
+    DEFAULT_BACKFILL_STATES,
+    DEFAULT_BASE_URL,
+    DOMAIN,
+    STYPE_DEVICE_CLASS,
+)
 from .coordinator import CelsiviewCoordinator
+from .state_backfill import StateBackfillUnsupported, async_write_state_rows
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,10 +47,14 @@ async def async_setup_entry(
     coordinator: CelsiviewCoordinator = hass.data[DOMAIN][entry.entry_id]
     base_url = entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
 
+    backfill_states = bool(entry.options.get(CONF_BACKFILL_STATES, DEFAULT_BACKFILL_STATES))
+
     entities: list[CelsiviewLocationSensor] = []
     for zid in coordinator.selected_zids:
         location = coordinator.data.get(zid) if coordinator.data else None
-        entities.append(CelsiviewLocationSensor(coordinator, entry, zid, base_url, location))
+        entities.append(
+            CelsiviewLocationSensor(coordinator, entry, zid, base_url, location, backfill_states)
+        )
 
     async_add_entities(entities)
 
@@ -50,15 +62,19 @@ async def async_setup_entry(
 class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEntity):
     """One Home Assistant sensor per Celsiview location.
 
-    The sensor serves two purposes:
+    The sensor serves up to three purposes per poll:
 
     * its live state / attributes expose the most recent sample the API
-      returned on the latest coordinator poll, and
-    * after each poll it also walks Celsiview's history endpoint from
-      the last imported bucket up to now, aggregates samples into hourly
-      buckets and imports them as long-term statistics, so Home
-      Assistant's history graphs reflect on-device sample times rather
-      than our polling cadence.
+      returned on the latest coordinator poll;
+    * it walks Celsiview's history endpoint from the last imported
+      bucket up to now, aggregates samples into hourly buckets and
+      imports them as long-term statistics, so the Statistics dashboard
+      and long-zoom history reflect on-device sample times; and
+    * if the user has enabled the (advanced, unsupported)
+      ``backfill_states`` option, it additionally writes every sample
+      directly into the recorder's ``states`` table at its on-device
+      timestamp, giving the standard History tab full sample-rate
+      detail at the cost of bypassing HA's public API.
     """
 
     _attr_has_entity_name = False
@@ -71,6 +87,7 @@ class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEnt
         zid: str,
         base_url: str,
         initial: Location | None,
+        backfill_states: bool,
     ) -> None:
         super().__init__(coordinator)
         self._zid = zid
@@ -95,6 +112,11 @@ class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEnt
         # in as more samples arrive.
         self._last_imported_ts: int | None = None
         self._backfill_in_progress = False
+        # Direct-to-states backfill is opt-in and bypasses HA's public
+        # API; flips off if the recorder rejects us so we don't keep
+        # logging the same error every poll.
+        self._backfill_states_enabled = backfill_states
+        self._last_state_backfilled_ts: int | None = None
 
     @property
     def _location(self) -> Location | None:
@@ -202,8 +224,49 @@ class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEnt
                 len(samples),
                 self.entity_id,
             )
+
+            if self._backfill_states_enabled:
+                await self._async_backfill_states(samples)
         finally:
             self._backfill_in_progress = False
+
+    async def _async_backfill_states(self, samples: list[Sample]) -> None:
+        """Write fetched samples directly into the recorder's states table.
+
+        Opt-in path enabled via the ``backfill_states`` option. We rely
+        on a per-entity cursor so we don't re-process samples we've
+        already inserted, and the writer itself dedupes against the DB
+        as a second line of defence.
+        """
+        cursor = self._last_state_backfilled_ts
+        new_samples = [s for s in samples if cursor is None or s.ts > cursor]
+        if not new_samples:
+            return
+        try:
+            inserted = await async_write_state_rows(self.hass, self.entity_id, new_samples)
+        except StateBackfillUnsupported as err:
+            _LOGGER.error(
+                "Disabling state backfill for %s — recorder schema check failed: %s",
+                self.entity_id,
+                err,
+            )
+            self._backfill_states_enabled = False
+            return
+        except Exception:
+            _LOGGER.exception(
+                "Direct state backfill failed for %s; disabling for this session",
+                self.entity_id,
+            )
+            self._backfill_states_enabled = False
+            return
+
+        self._last_state_backfilled_ts = max(s.ts for s in new_samples)
+        if inserted:
+            _LOGGER.debug(
+                "Wrote %d historical state row(s) directly to recorder for %s",
+                inserted,
+                self.entity_id,
+            )
 
     async def _determine_start_ts(self, loc: Location) -> int:
         """Return the timestamp to resume fetching history from.

@@ -36,7 +36,11 @@
         "description": "Select which locations to keep imported and how often to poll the Celsiview API. {count} locations are available.",
         "data": {
           "selected_locations": "Locations to import",
-          "scan_interval_minutes": "Poll interval (minutes)"
+          "scan_interval_minutes": "Poll interval (minutes)",
+          "backfill_states": "Backfill every sample into the states table (advanced, unsupported)"
+        },
+        "data_description": {
+          "backfill_states": "If enabled, every Celsiview sample is written directly into Home Assistant's recorder states table at its on-device timestamp, so the standard History tab shows full sample-rate detail instead of stepping at upload cadence. This bypasses Home Assistant's public API and writes to internal recorder tables. It can break across HA versions if the recorder schema changes, and may cause excessive recorder DB growth on long backfills. Hourly long-term statistics are imported regardless of this setting; leave this off unless you specifically want sample-resolution state history."
         }
       }
     },

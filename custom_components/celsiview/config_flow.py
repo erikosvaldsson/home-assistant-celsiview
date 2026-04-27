@@ -20,10 +20,12 @@ from .api import (
 )
 from .const import (
     CONF_APPLICATION_KEY,
+    CONF_BACKFILL_STATES,
     CONF_BASE_URL,
     CONF_CLIENT_SECRET,
     CONF_SCAN_INTERVAL_MINUTES,
     CONF_SELECTED_LOCATIONS,
+    DEFAULT_BACKFILL_STATES,
     DEFAULT_BASE_URL,
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
@@ -217,12 +219,19 @@ class CelsiviewOptionsFlow(config_entries.OptionsFlow):
             )
         )
 
+        current_backfill_states = bool(
+            self._entry.options.get(CONF_BACKFILL_STATES, DEFAULT_BACKFILL_STATES)
+        )
+
         if user_input is not None:
             return self.async_create_entry(
                 title="",
                 data={
                     CONF_SELECTED_LOCATIONS: user_input[CONF_SELECTED_LOCATIONS],
                     CONF_SCAN_INTERVAL_MINUTES: user_input[CONF_SCAN_INTERVAL_MINUTES],
+                    CONF_BACKFILL_STATES: user_input.get(
+                        CONF_BACKFILL_STATES, DEFAULT_BACKFILL_STATES
+                    ),
                 },
             )
 
@@ -232,6 +241,9 @@ class CelsiviewOptionsFlow(config_entries.OptionsFlow):
                     vol.Coerce(int),
                     vol.Range(min=MIN_SCAN_INTERVAL_MINUTES, max=MAX_SCAN_INTERVAL_MINUTES),
                 ),
+                vol.Required(
+                    CONF_BACKFILL_STATES, default=current_backfill_states
+                ): selector.BooleanSelector(),
             }
         )
         return self.async_show_form(

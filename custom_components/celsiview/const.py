@@ -22,6 +22,16 @@ CONF_APPLICATION_KEY = "application_key"
 CONF_CLIENT_SECRET = "client_secret"
 CONF_SCAN_INTERVAL_MINUTES = "scan_interval_minutes"
 CONF_SELECTED_LOCATIONS = "selected_locations"
+CONF_BACKFILL_STATES = "backfill_states"
+
+DEFAULT_BACKFILL_STATES = False
+
+# Highest recorder schema version this integration has been tested
+# against for the direct-DB state backfill. If HA's recorder is newer we
+# still try, but log a warning so users know they're past the tested
+# range. If older we refuse, since the column layout differs.
+RECORDER_SCHEMA_VERSION_MIN = 48
+RECORDER_SCHEMA_VERSION_TESTED = 53
 
 DEFAULT_SCAN_INTERVAL = timedelta(minutes=DEFAULT_SCAN_INTERVAL_MINUTES)
 

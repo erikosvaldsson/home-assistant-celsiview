@@ -24,10 +24,17 @@ bulk, a few times a day. The integration handles this in two ways:
 - **Long-term statistics backfill** – after each poll, the integration pulls
   the raw sample stream from Celsiview's history endpoint, aggregates it
   into hourly `min`/`mean`/`max` buckets, and imports those directly into
-  Home Assistant's long-term statistics. The result is that the history
-  graph for each sensor reflects **on-device sample times**, not the time
-  you happened to poll the API — even though the hardware only uploads a
-  few times per day.
+  Home Assistant's long-term statistics. Visible on the **Statistics
+  dashboard** and the long-zoom view of the entity history graph, with
+  on-device sample times preserved at hourly resolution.
+
+> **What this does not do by default:** Home Assistant's standard *History*
+> tab graphs *state changes*, not statistics, and there is no public API to
+> backdate state rows. Celsiview's hardware only uploads in bulk, so the
+> entity's `state` only changes when an upload arrives — meaning the
+> History tab will show one step per upload (e.g. every 3 hours) regardless
+> of the on-device sample rate. See the *Sample-resolution state history*
+> section below for an opt-in workaround.
 
 ---
 
@@ -51,13 +58,21 @@ bulk, a few times a day. The integration handles this in two ways:
 - **Historical statistics backfill** – the integration fetches every raw
   sample from Celsiview's history endpoint, not just the latest. Samples
   are bucketed into hourly min/mean/max and imported as long-term
-  statistics, so the Statistics dashboard and history graphs show every
-  reading at its true on-device timestamp. On first setup, backfill goes
-  back to the location's `valid_start`, chunked safely into 180-day
-  windows. On every subsequent poll only the gap since the last imported
-  hour is fetched, so incremental catch-up is cheap.
-- Options flow – change the poll interval and the selected sensors at any
-  time without removing the integration.
+  statistics, so the **Statistics dashboard** (and the entity history
+  graph at long zoom levels, which falls back to statistics) reflects
+  on-device sample times at hourly resolution. The standard History tab
+  is unaffected — see *Sample-resolution state history* below for the
+  opt-in workaround. On first setup, backfill goes back to the
+  location's `valid_start`, chunked safely into 180-day windows. On
+  every subsequent poll only the gap since the last imported hour is
+  fetched, so incremental catch-up is cheap.
+- **Optional sample-resolution state history** – an opt-in advanced
+  setting that writes every individual sample directly into the
+  recorder's `states` table at its on-device timestamp, so the standard
+  History tab matches the device's true sample rate. Bypasses HA's
+  public API; read the section below before turning it on.
+- Options flow – change the poll interval, selected sensors, and the
+  optional state backfill at any time without removing the integration.
 
 ## Requirements
 
@@ -157,9 +172,62 @@ Two things happen on every poll:
    samples arrive within the same hour.
 
 Hourly min/mean/max for each sensor are sent to Home Assistant's
-statistics backend via `async_import_statistics`, so the `Statistics`
-dashboard and the long-term-history graphs on each sensor entity line up
-with the device's own sample timestamps rather than the poll times.
+statistics backend via `async_import_statistics`. The Statistics
+dashboard and the long-zoom view of the entity history graph line up
+with the device's own sample timestamps at hourly resolution. The
+standard *History* tab continues to show *state changes* — one per
+upload — because the recorder has no public API for backdating state
+rows.
+
+## Sample-resolution state history (advanced, unsupported)
+
+Home Assistant's long-term statistics API enforces hourly buckets:
+sub-hour timestamps are rejected outright (`async_import_statistics`
+hard-errors if a `start` isn't on the top of an hour). The recorder
+also has no public API to insert historical *state* rows. So the only
+way to make the standard History tab show every individual sample at
+its on-device time is to write directly into the recorder's internal
+`states` and `states_meta` tables.
+
+This integration includes that path as an **opt-in option** in the
+config flow, called *"Backfill every sample into the states table
+(advanced, unsupported)"*. When enabled, after each poll every fetched
+sample is written to the recorder's `states` table with
+`last_updated_ts` set to the on-device timestamp. Each existing
+timestamp for the entity is queried first so re-fetched windows do not
+produce duplicate rows.
+
+**Read this before turning it on:**
+
+- It bypasses Home Assistant's public API and writes directly to
+  internal recorder tables. Column renames or new NOT-NULL columns in
+  a future HA release will break it. The integration refuses to run
+  if the recorder's `SCHEMA_VERSION` is below the minimum it has been
+  tested against, and logs a warning if the schema is newer than the
+  tested ceiling. Tested range is currently recorder schema versions
+  `48`–`53` (HA 2024.4 through current).
+- Backfilled rows have `attributes_id = NULL`, so the History tab will
+  show the row's value but not its unit / friendly-name *at that point
+  in time*. Live rows written by HA on poll keep full attributes. In
+  practice the attributes shown when hovering the chart come from the
+  current state, so you usually won't notice.
+- Initial backfill can be large. With 5-minute samples that's about
+  105k rows per year per sensor. Inserts are chunked, but the recorder
+  database will grow accordingly and will eventually be subject to
+  your configured `recorder.purge_keep_days`.
+- This is a custom-component-only feature. It will not pass HA core
+  review and will never be in core; if HA changes the recorder's
+  thread/pool model the schema check will catch the obvious case but
+  not every possible breakage.
+
+If anything in the writer fails, the integration logs the exception
+and disables this path for the rest of the session — your sensor
+keeps working, the standard hourly-statistics backfill keeps working,
+and only the direct-DB writes stop. Re-enable by restarting Home
+Assistant once the underlying issue is resolved.
+
+Leave this off unless you specifically want sample-rate detail on the
+standard History tab and accept the maintenance burden above.
 
 ## Troubleshooting
 
@@ -184,11 +252,13 @@ The integration is intentionally small and split by concern:
 custom_components/celsiview/
 ├── __init__.py        # config-entry setup & unload
 ├── api.py             # aiohttp client + Location dataclass
+├── bucketing.py       # hourly aggregation for long-term statistics
 ├── config_flow.py     # config + options flow (credentials, selection)
 ├── const.py           # constants and sensor-type → device_class map
 ├── coordinator.py     # DataUpdateCoordinator
 ├── manifest.json
 ├── sensor.py          # sensor platform
+├── state_backfill.py  # opt-in direct-to-recorder state writer
 ├── strings.json
 └── translations/
     └── en.json
