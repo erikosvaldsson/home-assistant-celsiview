@@ -6,16 +6,16 @@ import logging
 from datetime import UTC, datetime
 
 from homeassistant.components.recorder import get_instance as recorder_get_instance
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMeanType,
+    StatisticMetaData,
+)
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     get_last_statistics,
 )
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -96,7 +96,13 @@ class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEnt
         self._attr_unique_id = f"{DOMAIN}_{zid}"
         self._attr_name = initial.name if initial else zid
 
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        # We deliberately do NOT set ``state_class`` to ``MEASUREMENT``.
+        # That flag tells HA's recorder to auto-compile hourly long-term
+        # statistics from this entity's state changes, which would race
+        # with the hourly statistics we import ourselves and trip the
+        # recorder's UNIQUE constraint on (metadata_id, start_ts) at
+        # every hour boundary. Since we own the imported statistics for
+        # this entity, we let the recorder leave it alone.
         self._apply_classification(initial)
 
         self._attr_device_info = DeviceInfo(
@@ -200,11 +206,12 @@ class CelsiviewLocationSensor(CoordinatorEntity[CelsiviewCoordinator], SensorEnt
                 return
 
             metadata: StatisticMetaData = {
-                "has_mean": True,
+                "mean_type": StatisticMeanType.ARITHMETIC,
                 "has_sum": False,
                 "name": loc.name,
                 "source": "recorder",
                 "statistic_id": self.entity_id,
+                "unit_class": None,
                 "unit_of_measurement": loc.last_unit,
             }
             stats: list[StatisticData] = [

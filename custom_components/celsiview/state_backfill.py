@@ -115,8 +115,11 @@ async def async_write_state_rows(
 
     try:
         from homeassistant.components.recorder import get_instance
-        from homeassistant.components.recorder.const import SCHEMA_VERSION
-        from homeassistant.components.recorder.db_schema import States, StatesMeta
+        from homeassistant.components.recorder.db_schema import (
+            SCHEMA_VERSION,
+            States,
+            StatesMeta,
+        )
         from homeassistant.components.recorder.util import session_scope
         from sqlalchemy import insert, select
 

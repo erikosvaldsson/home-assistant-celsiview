@@ -143,11 +143,21 @@ Each selected Celsiview **Location** becomes one sensor entity with:
 | State | `last_value` |
 | Unit | `last_unit` |
 | Device class | `last_stype` → HA mapping (e.g. `T` → `temperature`) |
-| State class | `measurement` |
 | `zid` attribute | Celsiview location ID |
 | `sensor_type` attribute | `last_stype` (raw Celsiview code) |
 | `last_value_time` attribute | Unix timestamp of the sample |
 | `last_value_time_iso` attribute | Same timestamp, ISO 8601 UTC |
+
+> **No `state_class`.** The integration intentionally does not set
+> `state_class = measurement` on the entity. That flag asks the recorder
+> to auto-compile hourly long-term statistics from the entity's state
+> changes, which races with the hourly statistics this integration
+> imports itself and trips the recorder's `UNIQUE (metadata_id,
+> start_ts)` constraint at every hour boundary. Because the integration
+> already provides better statistics (computed from the device's own
+> 5-min samples rather than from poll-time states), we let the recorder
+> leave the entity alone. Statistics still appear on the Statistics
+> dashboard and the long-zoom history view as before.
 
 All selected locations are grouped under a single "hub" device named after
 the Celsiview host.
