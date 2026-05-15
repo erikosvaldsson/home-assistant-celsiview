@@ -18,7 +18,9 @@ include:
 variables:
   SECRET_DETECTION_ENABLED: 'true'
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  PIPENV_VENV_IN_PROJECT: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  UV_PROJECT_ENVIRONMENT: .venv
+  UV_LINK_MODE: copy
 
 # --- reusable setup for Python jobs ---------------------------------------
 .python:
@@ -26,28 +28,28 @@ variables:
   cache:
     key:
       files:
-        - Pipfile.lock
+        - uv.lock
     paths:
       - .venv/
       - .cache/pip/
   before_script:
-    - pip install --quiet pipenv
-    - pipenv sync --dev
+    - pip install --quiet --no-cache-dir uv==0.11.14
+    - uv sync --frozen
 
 # --- lint -----------------------------------------------------------------
 lint:ruff:
   extends: .python
   stage: lint
   script:
-    - pipenv run ruff check custom_components tests
-    - pipenv run ruff format --check custom_components tests
+    - uv run ruff check custom_components tests
+    - uv run ruff format --check custom_components tests
 
 # --- test -----------------------------------------------------------------
 test:pytest:
   extends: .python
   stage: test
   script:
-    - pipenv run pytest tests/ --junitxml=report.xml
+    - uv run pytest tests/ --junitxml=report.xml
   artifacts:
     when: always
     reports:
